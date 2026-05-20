@@ -1,8 +1,13 @@
 import asyncio
+import logging
 import time
 
 from crawler.async_crawler import AsyncCrawler
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
 
 URLS = [
     "https://example.com",

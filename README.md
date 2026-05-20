@@ -12,18 +12,11 @@ A learning project for building an asynchronous web crawler with Python and `asy
 - Basic logging
 - Sequential vs parallel performance comparison
 - Async tests with `pytest`
-
-## Project Structure
-
-```text
-async-web-crawler/
-├── demos/
-├── src/
-│   └── crawler/
-├── tests/
-├── pyproject.toml
-└── requirements.txt
-```
+- HTML parsing with BeautifulSoup
+- Metadata extraction
+- Relative URL normalization
+- Image, heading, table and list extraction
+- JSON result exporting
 
 ## Installation
 
@@ -34,30 +27,33 @@ python -m venv .venv
 source .venv/bin/activate
 ```
 
-Install dependencies:
+Install the project in editable mode with development dependencies:
 
 ```bash
-pip install -e .
+pip install -e ".[dev]"
 ```
 
-## Run Demo
+## Run Demos
 
 ```bash
-python demos/day1_basic_client.py
+python -m demos.run_demo day1
+python -m demos.run_demo day2
 ```
-
-The demo will:
-
-- fetch multiple URLs
-- handle errors
-- print request statuses
-- compare sequential vs parallel execution time
 
 ## Run Tests
 
 ```bash
 pytest
 ```
+
+Tests cover:
+- async HTTP fetching
+- timeout handling
+- invalid URLs
+- HTML parsing
+- broken HTML handling
+- relative URL conversion
+- link filtering
 
 ## Technologies
 
@@ -66,3 +62,5 @@ pytest
 - aiohttp
 - pytest
 - pytest-asyncio
+- BeautifulSoup4
+- lxml

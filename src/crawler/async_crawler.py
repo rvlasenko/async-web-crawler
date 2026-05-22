@@ -7,6 +7,7 @@ import aiohttp
 
 from crawler.crawler_queue import CrawlerQueue
 from crawler.html_parser import HTMLParser
+from crawler.rate_limiter import RateLimiter
 from crawler.semaphore_manager import SemaphoreManager
 
 logger = logging.getLogger(__name__)
@@ -18,10 +19,21 @@ class AsyncCrawler:
         max_concurrent: int = 5,
         timeout_seconds: float = 10,
         max_depth: int | None = None,
+        requests_per_second: float | None = None,
+        rate_limit_per_domain: bool = True,
     ):
         self.max_concurrent = max_concurrent
         self.timeout_seconds = timeout_seconds
         self.max_depth = max_depth
+
+        self.rate_limiter = (
+            RateLimiter(
+                requests_per_second=requests_per_second,
+                per_domain=rate_limit_per_domain,
+            )
+            if requests_per_second is not None
+            else None
+        )
 
         self.semaphore_manager = SemaphoreManager(
             global_limit=max_concurrent,
@@ -231,6 +243,9 @@ class AsyncCrawler:
     async def fetch_url(self, url: str) -> dict[str, Any]:
         if self.session is None:
             raise RuntimeError("Session is not initialized")
+
+        if self.rate_limiter is not None:
+            await self.rate_limiter.acquire(url)
 
         async with self.semaphore_manager.acquire(url):
             logger.info(f"Start fetching: {url}")

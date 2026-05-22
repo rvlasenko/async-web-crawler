@@ -6,15 +6,22 @@ A learning project for building an asynchronous web crawler with Python and `asy
 
 - Asynchronous HTTP requests with `aiohttp`
 - Concurrent page fetching
+- Queue-based crawl orchestration
+- Global and per-domain concurrency control
 - Connection pooling with `ClientSession`
 - Request timeout handling
 - Error handling for network and HTTP errors
 - Basic logging
+- Crawl progress logging and statistics snapshots
 - Sequential vs parallel performance comparison
 - Async tests with `pytest`
 - HTML parsing with BeautifulSoup
 - Metadata extraction
 - Relative URL normalization
+- Crawl depth limiting
+- Duplicate URL filtering
+- Same-domain filtering
+- Include and exclude URL patterns
 - Image, heading, table and list extraction
 - JSON result exporting
 
@@ -36,8 +43,9 @@ pip install -e ".[dev]"
 ## Run Demos
 
 ```bash
-python -m demos.run_demo day1
-python -m demos.run_demo day2
+python demos/run_demo.py day1
+python demos/run_demo.py day2
+python demos/run_demo.py day3
 ```
 
 ## Run Tests
@@ -54,6 +62,9 @@ Tests cover:
 - broken HTML handling
 - relative URL conversion
 - link filtering
+- queue behavior and deduplication
+- crawl depth limits and crawl progress stats
+- semaphore-based concurrency limits
 
 ## Technologies
 

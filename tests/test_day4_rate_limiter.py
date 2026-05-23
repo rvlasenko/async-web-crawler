@@ -1,5 +1,6 @@
 import asyncio
 import time
+from unittest.mock import patch
 
 import pytest
 
@@ -181,3 +182,75 @@ async def test_no_lock_race_on_first_use() -> None:
     # Exactly one lock must exist for the domain — no duplicate creation
     assert len(rl._locks) == 1
     assert "example.com" in rl._locks
+
+
+# ---------------------------------------------------------------------------
+# min_delay
+# ---------------------------------------------------------------------------
+
+
+def test_min_delay_sets_min_interval() -> None:
+    rl = RateLimiter(requests_per_second=None, min_delay=0.5)
+    assert rl._min_interval == pytest.approx(0.5)
+
+
+def test_min_delay_equivalent_to_requests_per_second() -> None:
+    rl_rps = RateLimiter(requests_per_second=2.0)
+    rl_delay = RateLimiter(requests_per_second=None, min_delay=0.5)
+    assert rl_rps._min_interval == pytest.approx(rl_delay._min_interval)
+
+
+def test_min_delay_and_rps_together_raises() -> None:
+    with pytest.raises(ValueError, match="not both"):
+        RateLimiter(requests_per_second=2.0, min_delay=0.5)
+
+
+@pytest.mark.parametrize("bad_delay", [0.0, -0.5])
+def test_min_delay_non_positive_raises(bad_delay: float) -> None:
+    with pytest.raises(ValueError, match="min_delay must be positive"):
+        RateLimiter(requests_per_second=None, min_delay=bad_delay)
+
+
+# ---------------------------------------------------------------------------
+# jitter
+# ---------------------------------------------------------------------------
+
+
+def test_jitter_negative_raises() -> None:
+    with pytest.raises(ValueError, match="jitter must be non-negative"):
+        RateLimiter(jitter=-0.1)
+
+
+@pytest.mark.asyncio
+async def test_jitter_adds_random_delay() -> None:
+    rl = RateLimiter(requests_per_second=None, jitter=0.3)
+
+    with patch("crawler.rate_limiter.random.uniform", return_value=0.15) as mock_uniform:
+        await rl.acquire()
+
+    mock_uniform.assert_called_once_with(0, 0.3)
+
+
+@pytest.mark.asyncio
+async def test_jitter_zero_no_random_call() -> None:
+    rl = RateLimiter(requests_per_second=FAST_RPS, jitter=0.0)
+
+    with patch("crawler.rate_limiter.random.uniform") as mock_uniform:
+        await rl.acquire()
+
+    mock_uniform.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_jitter_only_mode_no_base_interval() -> None:
+    rl = RateLimiter(requests_per_second=None, jitter=0.1)
+    assert rl._min_interval == 0.0
+
+    with patch("crawler.rate_limiter.random.uniform", return_value=0.05):
+        start = time.monotonic()
+        await rl.acquire()
+        await rl.acquire()
+        elapsed = time.monotonic() - start
+
+    # Two calls with 50ms jitter each → minimal total time (no base rate)
+    assert elapsed < 0.5

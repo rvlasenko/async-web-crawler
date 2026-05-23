@@ -10,10 +10,13 @@ class SemaphoreManager:
         global_limit: int = 10,
         per_domain_limit: int = 5,
     ) -> None:
+        self.global_limit = global_limit
+        self.per_domain_limit = per_domain_limit
+
+        self._validate_params()
+
         self.global_semaphore = asyncio.Semaphore(global_limit)
         self.domain_semaphores: dict[str, asyncio.Semaphore] = {}
-
-        self.per_domain_limit = per_domain_limit
         self._active_tasks_count = 0
 
     @asynccontextmanager
@@ -42,6 +45,12 @@ class SemaphoreManager:
 
     def get_active_tasks_count(self) -> int:
         return self._active_tasks_count
+
+    def _validate_params(self) -> None:
+        if self.global_limit <= 0:
+            raise ValueError(f"global_limit must be positive, got {self.global_limit}")
+        if self.per_domain_limit <= 0:
+            raise ValueError(f"per_domain_limit must be positive, got {self.per_domain_limit}")
 
     def _get_domain_key(self, url_or_domain: str) -> str:
         parsed_url = urlparse(url_or_domain)

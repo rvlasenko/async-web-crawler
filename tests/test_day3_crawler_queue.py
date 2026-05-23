@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from crawler.crawler_queue import CrawlerQueue
@@ -142,6 +144,22 @@ def test_queue_marks_url_as_failed() -> None:
     assert stats["processed"] == 0
     assert stats["failed"] == 1
     assert queue.failed_urls["https://example.com"] == "TimeoutError"
+
+
+@pytest.mark.asyncio
+async def test_get_next_concurrent_calls_return_each_item_exactly_once() -> None:
+    """In asyncio, get_next() is safe to call concurrently: no await exists between
+    the empty() check and get_nowait(), so no other coroutine can interleave.
+    Each item is returned exactly once regardless of how many callers race."""
+    queue = CrawlerQueue()
+    for i in range(5):
+        queue.add_url(f"https://example.com/page-{i}")
+
+    results = await asyncio.gather(*[queue.get_next() for _ in range(7)])
+    tasks = [r for r in results if r is not None]
+
+    assert len(tasks) == 5
+    assert len({t.url for t in tasks}) == 5
 
 
 def test_queue_stats_include_only_unique_pending_urls() -> None:

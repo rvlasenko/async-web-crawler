@@ -1,4 +1,5 @@
 import asyncio
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from aiohttp import web
@@ -348,6 +349,23 @@ async def create_concurrent_crawl_test_server(unused_tcp_port):
     await site.start()
 
     return runner, f"http://localhost:{port}", request_state
+
+
+@pytest.mark.asyncio
+async def test_fetch_and_parse_exception_does_not_propagate() -> None:
+    """Any exception raised inside session.get is caught by except Exception in
+    _do_http_fetch and returned as an error dict — it never propagates to the caller.
+    This documents why gather() in crawl() cannot crash from an unexpected HTTP error."""
+    async with AsyncCrawler() as crawler:
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(side_effect=RuntimeError("unexpected internal error"))
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch.object(crawler.session, "get", return_value=mock_cm):
+            result = await crawler.fetch_and_parse("https://example.com/page")
+
+    assert result["parse_errors"]
+    assert "unexpected internal error" in result["parse_errors"][0]
 
 
 @pytest.mark.asyncio

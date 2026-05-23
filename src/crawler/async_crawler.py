@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 import time
 from typing import Any
 
@@ -8,6 +9,7 @@ import aiohttp
 from crawler.crawler_queue import CrawlerQueue
 from crawler.html_parser import HTMLParser
 from crawler.rate_limiter import RateLimiter
+from crawler.robots_parser import RobotsParser
 from crawler.semaphore_manager import SemaphoreManager
 
 logger = logging.getLogger(__name__)
@@ -20,18 +22,45 @@ class AsyncCrawler:
         timeout_seconds: float = 10,
         max_depth: int | None = None,
         requests_per_second: float | None = None,
+        min_delay: float | None = None,
+        jitter: float = 0.0,
         rate_limit_per_domain: bool = True,
+        respect_robots_txt: bool = False,
+        user_agent: str | list[str] = "AsyncCrawler/1.0",
+        max_retries: int = 0,
+        backoff_base: float = 1.0,
     ):
         self.max_concurrent = max_concurrent
         self.timeout_seconds = timeout_seconds
         self.max_depth = max_depth
+        self.max_retries = max_retries
+        self.backoff_base = backoff_base
+        self.user_agent = user_agent
+        if isinstance(user_agent, list):
+            self._primary_user_agent = user_agent[0] if user_agent else ""
+        else:
+            self._primary_user_agent = user_agent
 
+        needs_rate_limiter = (
+            requests_per_second is not None
+            or min_delay is not None
+            or jitter > 0
+            or respect_robots_txt
+        )
         self.rate_limiter = (
             RateLimiter(
                 requests_per_second=requests_per_second,
+                min_delay=min_delay,
+                jitter=jitter,
                 per_domain=rate_limit_per_domain,
             )
-            if requests_per_second is not None
+            if needs_rate_limiter
+            else None
+        )
+
+        self.robots_parser = (
+            RobotsParser(user_agent=self._primary_user_agent)
+            if respect_robots_txt
             else None
         )
 
@@ -49,6 +78,11 @@ class AsyncCrawler:
         self._crawl_started_at: float | None = None
         self._crawl_finished_at: float | None = None
         self._queued_count = 0
+        self._total_fetch_time: float = 0.0
+        self._fetch_count: int = 0
+        self._blocked_by_robots_count: int = 0
+
+        self._validate_params()
 
     async def __aenter__(self):
         timeout = aiohttp.ClientTimeout(
@@ -57,6 +91,9 @@ class AsyncCrawler:
         )
 
         self.session = aiohttp.ClientSession(timeout=timeout)
+
+        if self.robots_parser is not None:
+            self.robots_parser.set_session(self.session)
 
         return self
 
@@ -82,6 +119,9 @@ class AsyncCrawler:
         self._crawl_started_at = time.perf_counter()
         self._crawl_finished_at = None
         self._queued_count = 0
+        self._total_fetch_time = 0.0
+        self._fetch_count = 0
+        self._blocked_by_robots_count = 0
 
         if max_pages <= 0 or not start_urls:
             self._crawl_finished_at = time.perf_counter()
@@ -165,22 +205,17 @@ class AsyncCrawler:
         fetch_result = await self.fetch_url(url)
 
         if not fetch_result["success"]:
-            result = self.parser.empty_result(url)
-
-            result["parse_errors"] = [
-                f"Fetch failed: {fetch_result['error'] or 'Unknown fetch error'}"
-            ]
-
-            return result
+            return self.parser.empty_result(
+                url=url,
+                parse_error=f"Fetch failed: {fetch_result['error'] or 'Unknown fetch error'}",
+            )
 
         content = fetch_result["content"]
 
         if not isinstance(content, str):
-            result = self.parser.empty_result(url)
-
-            result["parse_errors"] = ["Fetch content is not a string"]
-
-            return result
+            return self.parser.empty_result(
+                url=url, parse_error="Fetch content is not a string"
+            )
 
         parsed_data = self.parser.parse_html(
             html=content,
@@ -232,83 +267,69 @@ class AsyncCrawler:
         else:
             pages_per_second = len(self.processed_urls) / elapsed_seconds
 
+        avg_latency = (
+            self._total_fetch_time / self._fetch_count if self._fetch_count > 0 else 0.0
+        )
+
         return {
             "processed_pages": len(self.processed_urls),
             "queued": self._queued_count,
             "errors": len(self.failed_urls),
             "active_tasks": self.semaphore_manager.get_active_tasks_count(),
             "pages_per_second": pages_per_second,
+            "avg_latency_seconds": avg_latency,
+            "blocked_by_robots": self._blocked_by_robots_count,
         }
 
     async def fetch_url(self, url: str) -> dict[str, Any]:
         if self.session is None:
             raise RuntimeError("Session is not initialized")
 
+        if self.robots_parser is not None:
+            await self.robots_parser.fetch_robots(url)
+
+            if not self.robots_parser.can_fetch(url):
+                logger.info("Blocked by robots.txt: %s", url)
+                self._blocked_by_robots_count += 1
+                return {
+                    "url": url,
+                    "success": False,
+                    "status": None,
+                    "content": None,
+                    "error": "Blocked by robots.txt",
+                }
+
+            crawl_delay = self.robots_parser.get_crawl_delay(url)
+            if crawl_delay > 0:
+                assert self.rate_limiter is not None  # guaranteed by needs_rate_limiter
+                self.rate_limiter.update_domain_delay(url, crawl_delay)
+
         if self.rate_limiter is not None:
             await self.rate_limiter.acquire(url)
 
         async with self.semaphore_manager.acquire(url):
-            logger.info(f"Start fetching: {url}")
+            result: dict[str, Any] = {}
 
-            try:
-                async with self.session.get(url) as response:
-                    response.raise_for_status()
+            for attempt in range(self.max_retries + 1):
+                result = await self._do_http_fetch(url)
 
-                    content = await response.text()
+                if result["success"]:
+                    return result
 
-                    logger.info(f"Success: {url} | status={response.status}")
+                if not self._is_retryable(result) or attempt == self.max_retries:
+                    return result
 
-                    return {
-                        "url": url,
-                        "success": True,
-                        "status": response.status,
-                        "content": content,
-                        "error": None,
-                    }
+                delay = self.backoff_base * (2**attempt)
+                logger.warning(
+                    "Retry %d/%d for %s in %.1fs",
+                    attempt + 1,
+                    self.max_retries,
+                    url,
+                    delay,
+                )
+                await asyncio.sleep(delay)
 
-            except asyncio.TimeoutError as error:
-                logger.warning(f"Timeout error: {url}")
-
-                return {
-                    "url": url,
-                    "success": False,
-                    "status": None,
-                    "content": None,
-                    "error": str(error),
-                }
-
-            except aiohttp.ClientResponseError as error:
-                logger.warning(f"HTTP error: {url} | status={error.status}")
-
-                return {
-                    "url": url,
-                    "success": False,
-                    "status": error.status,
-                    "content": None,
-                    "error": str(error),
-                }
-
-            except aiohttp.ClientError as error:
-                logger.warning(f"Network error: {url} | {error}")
-
-                return {
-                    "url": url,
-                    "success": False,
-                    "status": None,
-                    "content": None,
-                    "error": str(error),
-                }
-
-            except Exception as error:
-                logger.exception("Unexpected error while fetching: %s", url)
-
-                return {
-                    "url": url,
-                    "success": False,
-                    "status": None,
-                    "content": None,
-                    "error": f"{type(error).__name__}: {error}",
-                }
+            return result
 
     async def fetch_urls(
         self,
@@ -322,6 +343,101 @@ class AsyncCrawler:
         results = await asyncio.gather(*tasks)
 
         return {result["url"]: result for result in results}
+
+    async def _do_http_fetch(self, url: str) -> dict[str, Any]:
+        assert self.session is not None
+        logger.info("Start fetching: %s", url)
+
+        _start = time.perf_counter()
+        try:
+            headers = {"User-Agent": self._get_user_agent()}
+            async with self.session.get(url, headers=headers) as response:
+                response.raise_for_status()
+
+                content = await response.text()
+
+                logger.info("Success: %s | status=%s", url, response.status)
+
+                return {
+                    "url": url,
+                    "success": True,
+                    "status": response.status,
+                    "content": content,
+                    "error": None,
+                }
+
+        except asyncio.TimeoutError as error:
+            logger.warning("Timeout error: %s", url)
+
+            return {
+                "url": url,
+                "success": False,
+                "status": None,
+                "content": None,
+                "error": str(error),
+            }
+
+        except aiohttp.ClientResponseError as error:
+            logger.warning("HTTP error: %s | status=%s", url, error.status)
+
+            return {
+                "url": url,
+                "success": False,
+                "status": error.status,
+                "content": None,
+                "error": str(error),
+            }
+
+        except aiohttp.ClientError as error:
+            logger.warning("Network error: %s | %s", url, error)
+
+            return {
+                "url": url,
+                "success": False,
+                "status": None,
+                "content": None,
+                "error": str(error),
+            }
+
+        except Exception as error:
+            logger.exception("Unexpected error while fetching: %s", url)
+
+            return {
+                "url": url,
+                "success": False,
+                "status": None,
+                "content": None,
+                "error": f"{type(error).__name__}: {error}",
+            }
+
+        finally:
+            self._total_fetch_time += time.perf_counter() - _start
+            self._fetch_count += 1
+
+    def _is_retryable(self, result: dict[str, Any]) -> bool:
+        status = result.get("status")
+        if status is not None:
+            return status >= 500
+        return True
+
+    def _validate_params(self) -> None:
+        if self.max_concurrent <= 0:
+            raise ValueError(
+                f"max_concurrent must be positive, got {self.max_concurrent}"
+            )
+        if self.max_retries < 0:
+            raise ValueError(
+                f"max_retries must be non-negative, got {self.max_retries}"
+            )
+        if self.backoff_base <= 0:
+            raise ValueError(f"backoff_base must be positive, got {self.backoff_base}")
+        if isinstance(self.user_agent, list) and not self.user_agent:
+            raise ValueError("user_agent list must not be empty")
+
+    def _get_user_agent(self) -> str:
+        if isinstance(self.user_agent, list):
+            return random.choice(self.user_agent)
+        return self.user_agent
 
     def _matches_any_pattern(
         self,

@@ -20,6 +20,9 @@ class RobotsParser:
         self._results: dict[str, dict[str, Any]] = {}
         self._session: aiohttp.ClientSession | None = None
 
+    def set_session(self, session: aiohttp.ClientSession) -> None:
+        self._session = session
+
     async def __aenter__(self) -> "RobotsParser":
         self._session = aiohttp.ClientSession(timeout=self._timeout)
         return self

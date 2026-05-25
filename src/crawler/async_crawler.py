@@ -16,6 +16,41 @@ logger = logging.getLogger(__name__)
 
 
 class AsyncCrawler:
+    """Async breadth-first web crawler with concurrency control, rate limiting, and robots.txt support.
+
+    Must be used as an async context manager so the underlying HTTP session is
+    properly initialised and closed::
+
+        async with AsyncCrawler(max_concurrent=10) as crawler:
+            results = await crawler.crawl(["https://example.com"])
+
+    Args:
+        max_concurrent: Maximum simultaneous HTTP requests across all domains.
+        timeout_seconds: HTTP socket-read timeout per request, in seconds.
+            Connection timeout is always 5 s and is not configurable here.
+        max_depth: Maximum link depth to follow from seed URLs. ``None`` means
+            unlimited depth.
+        requests_per_second: Target request rate. Activates the rate limiter.
+            Mutually exclusive with ``min_delay``.
+        min_delay: Minimum seconds between requests. Activates the rate limiter.
+            Mutually exclusive with ``requests_per_second``.
+        jitter: Maximum extra random seconds added to each inter-request delay.
+            A non-zero value also activates the rate limiter even without a rate cap.
+        rate_limit_per_domain: When ``True``, rate limiting is applied per domain.
+            When ``False``, a single global bucket throttles all requests.
+        respect_robots_txt: When ``True``, fetches robots.txt before visiting any
+            page on a domain and skips URLs disallowed by it. Also applies any
+            ``Crawl-delay`` directive from robots.txt.
+        user_agent: ``User-Agent`` header sent with every request. Pass a list to
+            rotate values randomly per request; the first element is used for
+            robots.txt rule matching.
+        max_retries: How many times to retry a failed request. Only server errors
+            (HTTP 5xx) and network-level failures are retried; client errors (4xx)
+            are not.
+        backoff_base: Base for exponential backoff between retries.
+            ``delay = backoff_base × 2^attempt``.
+    """
+
     def __init__(
         self,
         max_concurrent: int = 5,
@@ -113,6 +148,26 @@ class AsyncCrawler:
         exclude_patterns: list[str] | None = None,
         show_progress: bool = False,
     ) -> dict[str, dict[str, Any]]:
+        """Crawl pages starting from ``start_urls`` and return structured parse results.
+
+        Resets all internal state on each call, so the same crawler instance can
+        be reused across multiple crawl runs.
+
+        Args:
+            start_urls: Seed URLs to begin crawling from.
+            max_pages: Stop after successfully processing this many pages.
+            same_domain_only: When ``True``, only follow links whose domain matches
+                the page they were discovered on.
+            include_patterns: If set, only enqueue URLs that contain at least one
+                of these substrings. Applied after ``exclude_patterns``.
+            exclude_patterns: If set, skip URLs that contain any of these substrings.
+                Applied before ``include_patterns``.
+            show_progress: When ``True``, log crawl progress stats (pages, queue
+                depth, errors, speed) after each batch via the module logger.
+
+        Returns:
+            Mapping of URL → parsed page data for every successfully processed page.
+        """
         self.visited_urls = set()
         self.failed_urls = {}
         self.processed_urls = {}

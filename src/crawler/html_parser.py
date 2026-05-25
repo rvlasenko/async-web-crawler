@@ -9,6 +9,11 @@ logger = logging.getLogger(__name__)
 
 
 class HTMLParser:
+    """Stateless HTML parser that extracts structured data from raw HTML strings.
+
+    All methods are pure — no internal state is mutated between calls.
+    """
+
     def parse_html(
         self,
         html: str,

@@ -5,6 +5,12 @@ from crawler.models import CrawlTask
 
 
 class CrawlerQueue:
+    """Async priority queue that tracks URL lifecycle: pending → active → done/failed.
+
+    Deduplicates across all lifecycle stages so a URL is never enqueued twice,
+    regardless of whether it is waiting, being fetched, already processed, or failed.
+    """
+
     def __init__(self) -> None:
         self.queue: asyncio.PriorityQueue[tuple[int, int, CrawlTask]] = (
             asyncio.PriorityQueue()
@@ -22,6 +28,13 @@ class CrawlerQueue:
         priority: int = 0,
         depth: int = 0,
     ) -> None:
+        """Enqueue a URL if it has not been seen in any lifecycle stage.
+
+        Args:
+            url: Absolute URL to crawl.
+            priority: Lower value means higher priority (min-heap ordering).
+            depth: Crawl depth of this URL relative to the seed.
+        """
         if not self._can_enqueue(url):
             return
 

@@ -71,13 +71,16 @@ python demos/run_demo.py day4   # robots.txt + rate limiting (hits httpbin.org)
 ## Tests
 
 ```bash
-pytest                                         # run all
-pytest tests/test_day4_rate_limiter.py -v      # specific module
+pytest                                    # run all
+pytest tests/unit/ -v                     # unit tests only
+pytest tests/integration/ -v              # integration tests only
+pytest tests/unit/test_rate_limiter.py    # specific module
 ```
 
-Coverage: HTTP errors, timeouts, HTML edge cases, queue deduplication,
-depth limits, semaphore enforcement, rate limiter math, robots.txt parsing,
-User-Agent rotation, crawl statistics.
+Unit tests cover: queue deduplication, HTML parsing edge cases, rate limiter math, robots.txt parsing, semaphore enforcement.
+
+Integration tests cover: HTTP errors, timeouts, crawl depth limits,
+rate limiting, robots.txt enforcement, User-Agent rotation, crawl statistics.
 
 ## Stack
 

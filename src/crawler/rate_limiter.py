@@ -8,6 +8,23 @@ logger = logging.getLogger(__name__)
 
 
 class RateLimiter:
+    """Async rate limiter with optional per-domain isolation and random jitter.
+
+    Exactly one of `requests_per_second` or `min_delay` may be set; specifying
+    both raises ValueError. Both may be None, in which case only jitter and any
+    domain-level delays (from robots.txt) apply.
+
+    Args:
+        requests_per_second: Target request rate. Converted internally to a minimum
+            inter-request interval. Mutually exclusive with `min_delay`.
+        min_delay: Minimum seconds between consecutive requests to the same target.
+            Mutually exclusive with `requests_per_second`.
+        jitter: Maximum extra random seconds added to each wait to reduce synchronized
+            bursts when multiple crawlers run in parallel.
+        per_domain: When True, each domain has an independent rate-limit bucket.
+            When False, a single global bucket throttles all requests together.
+    """
+
     _GLOBAL_KEY = "__global__"
 
     def __init__(

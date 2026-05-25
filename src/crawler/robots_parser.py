@@ -9,6 +9,21 @@ logger = logging.getLogger(__name__)
 
 
 class RobotsParser:
+    """Fetches and caches robots.txt per domain, then answers can_fetch queries.
+
+    The first call to `fetch_robots` for a domain makes an HTTP request and caches
+    the result. Subsequent calls for the same domain skip the network entirely.
+
+    Must be used either as an async context manager (owns its own session) or with
+    `set_session` to share the caller's existing session.
+
+    Args:
+        user_agent: User-Agent string matched against robots.txt Allow/Disallow rules.
+            Should match the value sent in HTTP request headers so the rules apply
+            to the actual requests being made.
+        timeout_seconds: HTTP timeout for fetching robots.txt files, in seconds.
+    """
+
     def __init__(
         self,
         user_agent: str = "*",

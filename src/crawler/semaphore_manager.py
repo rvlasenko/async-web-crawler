@@ -5,6 +5,17 @@ from urllib.parse import urlparse
 
 
 class SemaphoreManager:
+    """Controls concurrency via a global semaphore and per-domain semaphores.
+
+    Both limits apply simultaneously: a request must acquire the global semaphore
+    first, then the domain semaphore. This prevents any single domain from consuming
+    all available slots while still respecting the overall concurrency cap.
+
+    Args:
+        global_limit: Maximum total concurrent requests across all domains.
+        per_domain_limit: Maximum concurrent requests to a single domain.
+    """
+
     def __init__(
         self,
         global_limit: int = 10,

@@ -6,14 +6,22 @@ requires-python = ">=3.11"
 
 dependencies = [
     "aiohttp",
+    "aiofiles",
+    "asyncpg",
     "beautifulsoup4",
     "lxml",
+    "python-dotenv",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest",
     "pytest-asyncio",
+]
+
+[tool.pytest.ini_options]
+markers = [
+    "postgres: marks tests that require a running PostgreSQL instance (skip without CRAWLER_TEST_POSTGRES_DSN)",
 ]
 
 [tool.setuptools]

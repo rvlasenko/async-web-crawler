@@ -2,6 +2,7 @@ import asyncio
 import logging
 import random
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 import aiohttp
@@ -13,6 +14,7 @@ from crawler.rate_limiter import RateLimiter
 from crawler.retry_strategy import RetryStrategy
 from crawler.robots_parser import RobotsParser
 from crawler.semaphore_manager import SemaphoreManager
+from crawler.storage.base import DataStorage
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +79,7 @@ class AsyncCrawler:
         total_timeout: float | None = None,
         timeout_multiplier: float = 1.0,
         per_domain_limit: int = 2,
+        storage: DataStorage | None = None,
     ):
         self.max_concurrent = max_concurrent
         self.per_domain_limit = per_domain_limit
@@ -132,6 +135,7 @@ class AsyncCrawler:
         self._total_fetch_time: float = 0.0
         self._fetch_count: int = 0
         self._blocked_by_robots_count: int = 0
+        self.storage = storage
 
         self._validate_params()
 
@@ -242,6 +246,13 @@ class AsyncCrawler:
                 self.processed_urls[url] = parsed_data
                 queue.mark_processed(url)
 
+                if self.storage is not None:
+                    try:
+                        await self.storage.save(parsed_data)
+                    except Exception:
+                        # Storage errors must not stop the crawl — data stays in processed_urls.
+                        logger.exception("Storage error for %s — crawl continues", url)
+
                 for discovered_url in parsed_data["links"]:
                     if exclude_patterns and self._matches_any_pattern(
                         discovered_url,
@@ -307,6 +318,9 @@ class AsyncCrawler:
         # processed_urls and fetch_and_parse_urls stay consistent with
         # what the caller asked for.
         parsed_data["url"] = url
+        parsed_data["status_code"] = fetch_result.get("status")
+        parsed_data["content_type"] = fetch_result.get("content_type")
+        parsed_data["crawled_at"] = datetime.now(tz=timezone.utc)
 
         return parsed_data
 
@@ -403,7 +417,7 @@ class AsyncCrawler:
                 if self.retry_strategy is not None:
                     _attempt = 0
 
-                    async def _fetch() -> tuple[str, int, str]:
+                    async def _fetch() -> tuple[str, int, str, str]:
                         nonlocal _attempt
                         read_timeout = self.timeout_seconds * (
                             self.timeout_multiplier ** _attempt
@@ -411,17 +425,18 @@ class AsyncCrawler:
                         _attempt += 1
                         return await self._do_http_fetch(url, read_timeout=read_timeout)
 
-                    content, status, final_url = await self.retry_strategy.execute_with_retry(
+                    content, status, final_url, content_type = await self.retry_strategy.execute_with_retry(
                         _fetch, context=url
                     )
                 else:
-                    content, status, final_url = await self._do_http_fetch(url)
+                    content, status, final_url, content_type = await self._do_http_fetch(url)
 
                 return {
                     "url": url,
                     "success": True,
                     "status": status,
                     "content": content,
+                    "content_type": content_type,
                     "error": None,
                     "final_url": final_url,
                 }
@@ -463,8 +478,8 @@ class AsyncCrawler:
 
     async def _do_http_fetch(
         self, url: str, read_timeout: float | None = None
-    ) -> tuple[str, int, str]:
-        """Perform a single HTTP GET and return (content, status, final_url).
+    ) -> tuple[str, int, str, str]:
+        """Perform a single HTTP GET and return (content, status, final_url, content_type).
 
         ``final_url`` is the URL of the last response after any redirects and
         may differ from ``url`` when the server issues a 301/302. Callers must
@@ -495,8 +510,9 @@ class AsyncCrawler:
 
                 content = await response.text()
                 final_url = str(response.url)
+                content_type = response.headers.get("Content-Type", "")
                 logger.info("Success: %s | status=%s", url, response.status)
-                return content, response.status, final_url
+                return content, response.status, final_url, content_type
 
         except CrawlerError:
             raise

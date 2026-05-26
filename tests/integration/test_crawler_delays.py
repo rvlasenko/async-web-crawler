@@ -123,7 +123,9 @@ async def test_no_retry_on_4xx(unused_tcp_port: int) -> None:
 
 
 @pytest.mark.asyncio
-async def test_backoff_sleep_called_with_increasing_delays(unused_tcp_port: int) -> None:
+async def test_backoff_sleep_called_with_increasing_delays(
+    unused_tcp_port: int,
+) -> None:
     async def handler(request: web.Request) -> web.Response:
         return web.Response(status=500, text="error")
 
@@ -132,7 +134,9 @@ async def test_backoff_sleep_called_with_increasing_delays(unused_tcp_port: int)
     try:
         with patch("crawler.retry_strategy.asyncio.sleep") as mock_sleep:
             async with AsyncCrawler(
-                retry_strategy=RetryStrategy(max_retries=3, base_delay=1.0, backoff_factor=2.0)
+                retry_strategy=RetryStrategy(
+                    max_retries=3, base_delay=1.0, backoff_factor=2.0
+                )
             ) as crawler:
                 result = await crawler.fetch_url(f"{base_url}/page")
 
@@ -234,7 +238,9 @@ def test_timeout_multiplier_exactly_one_is_valid() -> None:
 async def test_timeout_escalates_on_retry() -> None:
     captured: list[float | None] = []
 
-    async def mock_fetch(self, url: str, read_timeout: float | None = None) -> tuple[str, int, str]:
+    async def mock_fetch(
+        self, url: str, read_timeout: float | None = None
+    ) -> tuple[str, int, str]:
         captured.append(read_timeout)
         raise TransientError("always fail")
 
@@ -255,13 +261,15 @@ async def test_timeout_multiplier_one_no_escalation() -> None:
     captured: list[float | None] = []
     call_n = 0
 
-    async def mock_fetch(self, url: str, read_timeout: float | None = None) -> tuple[str, int, str]:
+    async def mock_fetch(
+        self, url: str, read_timeout: float | None = None
+    ) -> tuple[str, int, str, str]:
         nonlocal call_n
         captured.append(read_timeout)
         call_n += 1
         if call_n < 3:
             raise TransientError("fail")
-        return "content", 200, "http://example.com/page"
+        return "content", 200, "http://example.com/page", "text/html"
 
     with patch.object(AsyncCrawler, "_do_http_fetch", mock_fetch):
         async with AsyncCrawler(

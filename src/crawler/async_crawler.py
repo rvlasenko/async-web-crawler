@@ -55,6 +55,10 @@ class AsyncCrawler:
         timeout_multiplier: Multiplier applied to ``timeout_seconds`` on each retry.
             ``1.0`` disables escalation. Must be ``>= 1.0``. Requires
             ``retry_strategy`` to have any effect.
+        per_domain_limit: Maximum concurrent requests to a single domain.
+            Requests beyond this limit wait until a slot is free. Must be
+            positive. For single-domain crawls the effective concurrency is
+            ``min(max_concurrent, per_domain_limit)``.
     """
 
     def __init__(
@@ -72,8 +76,10 @@ class AsyncCrawler:
         connect_timeout: float = 5.0,
         total_timeout: float | None = None,
         timeout_multiplier: float = 1.0,
+        per_domain_limit: int = 2,
     ):
         self.max_concurrent = max_concurrent
+        self.per_domain_limit = per_domain_limit
         self.timeout_seconds = timeout_seconds
         self.max_depth = max_depth
         self.retry_strategy = retry_strategy
@@ -111,13 +117,13 @@ class AsyncCrawler:
 
         self.semaphore_manager = SemaphoreManager(
             global_limit=max_concurrent,
-            per_domain_limit=2,
+            per_domain_limit=per_domain_limit,
         )
 
         self.session: aiohttp.ClientSession | None = None
 
         self.parser = HTMLParser()
-        self.visited_urls: set[str] = set()
+        self.attempted_urls: set[str] = set()
         self.failed_urls: dict[str, str] = {}
         self.processed_urls: dict[str, dict[str, Any]] = {}
         self._crawl_started_at: float | None = None
@@ -179,7 +185,7 @@ class AsyncCrawler:
         Returns:
             Mapping of URL → parsed page data for every successfully processed page.
         """
-        self.visited_urls = set()
+        self.attempted_urls = set()
         self.failed_urls = {}
         self.processed_urls = {}
         self._crawl_started_at = time.perf_counter()
@@ -213,7 +219,7 @@ class AsyncCrawler:
                 break
 
             for task in batch_tasks:
-                self.visited_urls.add(task.url)
+                self.attempted_urls.add(task.url)
 
             batch_results = await asyncio.gather(
                 *[
@@ -225,8 +231,10 @@ class AsyncCrawler:
             for task, parsed_data in zip(batch_tasks, batch_results):
                 url = task.url
 
-                if parsed_data["parse_errors"]:
-                    error = parsed_data["parse_errors"][0] or "Unknown fetch error"
+                fetch_error = parsed_data.get("fetch_error")
+                parse_error = parsed_data["parse_errors"][0] if parsed_data["parse_errors"] else None
+                error = fetch_error or parse_error
+                if error:
                     self.failed_urls[url] = error
                     queue.mark_failed(url, error)
                     continue
@@ -273,21 +281,32 @@ class AsyncCrawler:
         if not fetch_result["success"]:
             return self.parser.empty_result(
                 url=url,
-                parse_error=f"Fetch failed: {fetch_result['error'] or 'Unknown fetch error'}",
+                fetch_error=fetch_result["error"] or "Unknown fetch error",
             )
 
         content = fetch_result["content"]
 
         if not isinstance(content, str):
             return self.parser.empty_result(
-                url=url, parse_error="Fetch content is not a string"
+                url=url, fetch_error="Fetch content is not a string"
             )
+
+        # Use the final URL (after any redirects) as base for link resolution.
+        # Without this, relative links in redirected content are resolved against
+        # the original URL's path, making cross-domain relative links appear to
+        # belong to the original domain and bypassing same_domain_only filtering.
+        final_url = fetch_result.get("final_url") or url
 
         parsed_data = self.parser.parse_html(
             html=content,
-            url=url,
+            url=final_url,
             same_domain_only=same_domain_only,
         )
+
+        # Preserve the original requested URL as the result key so that
+        # processed_urls and fetch_and_parse_urls stay consistent with
+        # what the caller asked for.
+        parsed_data["url"] = url
 
         return parsed_data
 
@@ -363,11 +382,17 @@ class AsyncCrawler:
                     "status": None,
                     "content": None,
                     "error": "Blocked by robots.txt",
+                    "final_url": None,
                 }
 
             crawl_delay = self.robots_parser.get_crawl_delay(url)
             if crawl_delay > 0:
-                assert self.rate_limiter is not None  # guaranteed by needs_rate_limiter
+                if self.rate_limiter is None:
+                    raise RuntimeError(
+                        "robots.txt specifies Crawl-delay but rate_limiter is None; "
+                        "this should not happen because respect_robots_txt=True implies "
+                        "needs_rate_limiter=True"
+                    )
                 self.rate_limiter.update_domain_delay(url, crawl_delay)
 
         if self.rate_limiter is not None:
@@ -378,7 +403,7 @@ class AsyncCrawler:
                 if self.retry_strategy is not None:
                     _attempt = 0
 
-                    async def _fetch() -> tuple[str, int]:
+                    async def _fetch() -> tuple[str, int, str]:
                         nonlocal _attempt
                         read_timeout = self.timeout_seconds * (
                             self.timeout_multiplier ** _attempt
@@ -386,11 +411,11 @@ class AsyncCrawler:
                         _attempt += 1
                         return await self._do_http_fetch(url, read_timeout=read_timeout)
 
-                    content, status = await self.retry_strategy.execute_with_retry(
+                    content, status, final_url = await self.retry_strategy.execute_with_retry(
                         _fetch, context=url
                     )
                 else:
-                    content, status = await self._do_http_fetch(url)
+                    content, status, final_url = await self._do_http_fetch(url)
 
                 return {
                     "url": url,
@@ -398,6 +423,7 @@ class AsyncCrawler:
                     "status": status,
                     "content": content,
                     "error": None,
+                    "final_url": final_url,
                 }
 
             except CrawlerError as exc:
@@ -408,6 +434,7 @@ class AsyncCrawler:
                     "status": exc.status,
                     "content": None,
                     "error": str(exc),
+                    "final_url": None,
                 }
 
             except Exception as exc:
@@ -418,6 +445,7 @@ class AsyncCrawler:
                     "status": None,
                     "content": None,
                     "error": f"{type(exc).__name__}: {exc}",
+                    "final_url": None,
                 }
 
     async def fetch_urls(
@@ -435,8 +463,13 @@ class AsyncCrawler:
 
     async def _do_http_fetch(
         self, url: str, read_timeout: float | None = None
-    ) -> tuple[str, int]:
-        """Perform a single HTTP GET and return (content, status).
+    ) -> tuple[str, int, str]:
+        """Perform a single HTTP GET and return (content, status, final_url).
+
+        ``final_url`` is the URL of the last response after any redirects and
+        may differ from ``url`` when the server issues a 301/302. Callers must
+        use ``final_url`` as the base for relative-link resolution so that links
+        extracted from redirected pages point to the correct domain and path.
 
         Raises CrawlerError subclasses on failure so that RetryStrategy can
         intercept and classify them — TransientError for retryable failures,
@@ -461,8 +494,9 @@ class AsyncCrawler:
                     )
 
                 content = await response.text()
+                final_url = str(response.url)
                 logger.info("Success: %s | status=%s", url, response.status)
-                return content, response.status
+                return content, response.status, final_url
 
         except CrawlerError:
             raise
@@ -497,6 +531,10 @@ class AsyncCrawler:
         if self.timeout_multiplier < 1.0:
             raise ValueError(
                 f"timeout_multiplier must be >= 1.0, got {self.timeout_multiplier}"
+            )
+        if self.per_domain_limit <= 0:
+            raise ValueError(
+                f"per_domain_limit must be positive, got {self.per_domain_limit}"
             )
 
     def _get_user_agent(self) -> str:

@@ -45,14 +45,17 @@ class SemaphoreManager:
                     self._active_tasks_count -= 1
 
     def get_domain_semaphore(self, domain: str) -> asyncio.Semaphore:
-        normalized_domain = self._get_domain_key(domain)
+        # Do not call _get_domain_key here. acquire() already normalises the
+        # URL to a domain key before passing it in, and re-parsing a key like
+        # "site-a.com:8080" through urlparse treats "site-a.com" as the scheme
+        # and "8080" as the path, collapsing different hosts with the same port
+        # to the same bucket.
+        key = domain.lower().strip()
 
-        if normalized_domain not in self.domain_semaphores:
-            self.domain_semaphores[normalized_domain] = asyncio.Semaphore(
-                self.per_domain_limit
-            )
+        if key not in self.domain_semaphores:
+            self.domain_semaphores[key] = asyncio.Semaphore(self.per_domain_limit)
 
-        return self.domain_semaphores[normalized_domain]
+        return self.domain_semaphores[key]
 
     def get_active_tasks_count(self) -> int:
         return self._active_tasks_count

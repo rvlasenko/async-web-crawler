@@ -1,6 +1,6 @@
 import logging
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 from bs4 import BeautifulSoup
 from bs4.element import Tag
@@ -51,12 +51,14 @@ class HTMLParser:
             "headings": self.extract_headings(soup),
             "tables": self.extract_tables(soup),
             "lists": self.extract_lists(soup),
+            "fetch_error": None,
             "parse_errors": [],
         }
 
     def empty_result(
         self,
         url: str,
+        fetch_error: str | None = None,
         parse_error: str | None = None,
     ) -> dict[str, Any]:
         return {
@@ -76,6 +78,7 @@ class HTMLParser:
             },
             "tables": [],
             "lists": [],
+            "fetch_error": fetch_error,
             "parse_errors": [parse_error] if parse_error else [],
         }
 
@@ -108,6 +111,13 @@ class HTMLParser:
                 continue
 
             absolute_url = urljoin(base_url, href)
+
+            # Fragments are client-side only — the server never sees them.
+            # Without stripping, /page and /page#section are treated as
+            # separate URLs and the same page gets fetched multiple times.
+            parsed = urlparse(absolute_url)
+            if parsed.fragment:
+                absolute_url = urlunparse(parsed._replace(fragment=""))
 
             if not self.is_valid_url(absolute_url):
                 continue

@@ -110,3 +110,15 @@ async def test_global_limit_blocks_extra_task_across_domains() -> None:
 
     await asyncio.wait_for(third_acquired.wait(), timeout=1)
     await asyncio.gather(first_task, second_task, third_task)
+
+
+def test_different_hosts_same_port_get_separate_semaphores() -> None:
+    manager = SemaphoreManager(global_limit=10, per_domain_limit=2)
+
+    sem_a = manager.get_domain_semaphore("site-a.com:8080")
+    sem_b = manager.get_domain_semaphore("site-b.com:8080")
+
+    assert sem_a is not sem_b, (
+        "Hosts with the same port must not share a semaphore; "
+        "sharing would allow site-a to consume site-b's concurrency slots"
+    )

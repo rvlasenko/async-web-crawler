@@ -234,7 +234,7 @@ def test_timeout_multiplier_exactly_one_is_valid() -> None:
 async def test_timeout_escalates_on_retry() -> None:
     captured: list[float | None] = []
 
-    async def mock_fetch(self, url: str, read_timeout: float | None = None) -> tuple[str, int]:
+    async def mock_fetch(self, url: str, read_timeout: float | None = None) -> tuple[str, int, str]:
         captured.append(read_timeout)
         raise TransientError("always fail")
 
@@ -255,13 +255,13 @@ async def test_timeout_multiplier_one_no_escalation() -> None:
     captured: list[float | None] = []
     call_n = 0
 
-    async def mock_fetch(self, url: str, read_timeout: float | None = None) -> tuple[str, int]:
+    async def mock_fetch(self, url: str, read_timeout: float | None = None) -> tuple[str, int, str]:
         nonlocal call_n
         captured.append(read_timeout)
         call_n += 1
         if call_n < 3:
             raise TransientError("fail")
-        return "content", 200
+        return "content", 200, "http://example.com/page"
 
     with patch.object(AsyncCrawler, "_do_http_fetch", mock_fetch):
         async with AsyncCrawler(

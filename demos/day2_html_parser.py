@@ -33,6 +33,7 @@ def build_summary(result: dict[str, Any]) -> dict[str, Any]:
         "headings_count": sum(len(items) for items in result["headings"].values()),
         "tables_count": len(result["tables"]),
         "lists_count": len(result["lists"]),
+        "fetch_error": result.get("fetch_error"),
         "parse_errors": result["parse_errors"],
     }
 
@@ -73,8 +74,10 @@ async def main() -> None:
         print(f"Tables count: {summary['tables_count']}")
         print(f"Lists count: {summary['lists_count']}")
 
+        if summary["fetch_error"]:
+            print(f"Fetch error: {summary['fetch_error']}")
         if summary["parse_errors"]:
-            print("Errors:")
+            print("Parse errors:")
             for error in summary["parse_errors"]:
                 print(f"- {error}")
 

@@ -187,3 +187,23 @@ def test_extract_tables_and_lists() -> None:
             "items": ["One", "Two"],
         },
     ]
+
+
+def test_fragment_links_are_stripped() -> None:
+    html = """
+    <html><body>
+        <a href="/page">clean</a>
+        <a href="/page#section">fragment</a>
+        <a href="/page#other">other-fragment</a>
+        <a href="https://external.com/doc#ref">external with fragment</a>
+    </body></html>
+    """
+
+    parser = HTMLParser()
+    result = parser.parse_html(html=html, url="https://example.com")
+    links = result["links"]
+
+    assert "https://example.com/page" in links
+    assert "https://external.com/doc" in links
+    assert not any("#" in link for link in links), "No fragment should survive stripping"
+    assert links.count("https://example.com/page") == 1, "Fragment variants must collapse to one URL"

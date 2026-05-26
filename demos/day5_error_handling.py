@@ -85,10 +85,13 @@ async def start_server(port: int) -> web.AppRunner:
 
 
 def _is_success(result: dict) -> bool:
-    return not result.get("parse_errors")
+    return not result.get("fetch_error") and not result.get("parse_errors")
 
 
 def _error_msg(result: dict) -> str:
+    fetch_error = result.get("fetch_error")
+    if fetch_error:
+        return fetch_error
     errors = result.get("parse_errors", [])
     return errors[0] if errors else "unknown"
 

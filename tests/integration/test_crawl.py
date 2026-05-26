@@ -364,8 +364,8 @@ async def test_fetch_and_parse_exception_does_not_propagate() -> None:
         with patch.object(crawler.session, "get", return_value=mock_cm):
             result = await crawler.fetch_and_parse("https://example.com/page")
 
-    assert result["parse_errors"]
-    assert "unexpected internal error" in result["parse_errors"][0]
+    assert result["fetch_error"]
+    assert "unexpected internal error" in result["fetch_error"]
 
 
 @pytest.mark.asyncio
@@ -485,7 +485,7 @@ async def test_crawl_respects_same_domain_only(unused_tcp_port) -> None:
         assert start_url in results
         assert internal_url in results
         assert external_url not in results
-        assert external_url not in crawler.visited_urls
+        assert external_url not in crawler.attempted_urls
         assert crawler.failed_urls == {}
 
     finally:
@@ -511,7 +511,7 @@ async def test_crawl_respects_include_patterns(unused_tcp_port) -> None:
         assert start_url in results
         assert docs_url in results
         assert blog_url not in results
-        assert blog_url not in crawler.visited_urls
+        assert blog_url not in crawler.attempted_urls
 
     finally:
         await runner.cleanup()
@@ -536,7 +536,7 @@ async def test_crawl_respects_exclude_patterns(unused_tcp_port) -> None:
         assert start_url in results
         assert docs_url in results
         assert blog_url not in results
-        assert blog_url not in crawler.visited_urls
+        assert blog_url not in crawler.attempted_urls
 
     finally:
         await runner.cleanup()
@@ -641,5 +641,50 @@ async def test_crawl_fetches_discovered_pages_concurrently(unused_tcp_port) -> N
         assert len(results) == 4
         assert request_state["max_active"] == 2
 
+    finally:
+        await runner.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_redirect_relative_links_resolved_against_final_url(unused_tcp_port) -> None:
+    """Relative links in a redirected page must be resolved against the final URL.
+
+    Without BUG-4 fix: GET /old-path → redirect → /subdir/page → HTML contains
+    href="./child". urljoin("/old-path", "./child") = "/child" (wrong path).
+    With fix: urljoin("http://host/subdir/page", "./child") = "/subdir/child" (correct).
+    """
+
+    async def redirect_handler(request: web.Request) -> web.Response:
+        raise web.HTTPFound(location=f"/subdir/page")
+
+    async def page_handler(request: web.Request) -> web.Response:
+        return web.Response(
+            content_type="text/html",
+            text='<html><body><a href="./child">link</a></body></html>',
+        )
+
+    async def child_handler(request: web.Request) -> web.Response:
+        return web.Response(content_type="text/html", text="<html><body>child</body></html>")
+
+    app = web.Application()
+    app.router.add_get("/old-path", redirect_handler)
+    app.router.add_get("/subdir/page", page_handler)
+    app.router.add_get("/subdir/child", child_handler)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "localhost", unused_tcp_port)
+    await site.start()
+    base_url = f"http://localhost:{unused_tcp_port}"
+
+    try:
+        async with AsyncCrawler() as crawler:
+            result = await crawler.fetch_and_parse(f"{base_url}/old-path")
+
+        assert f"{base_url}/subdir/child" in result["links"], (
+            "Relative link './child' in a redirected page should resolve to "
+            f"/subdir/child (using final URL /subdir/page as base), "
+            f"but got: {result['links']}"
+        )
     finally:
         await runner.cleanup()

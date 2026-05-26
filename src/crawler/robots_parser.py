@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Any
 from urllib.parse import urlparse
@@ -33,6 +34,7 @@ class RobotsParser:
         self._timeout = aiohttp.ClientTimeout(total=timeout_seconds)
         self._parsers: dict[str, RobotFileParser | None] = {}
         self._results: dict[str, dict[str, Any]] = {}
+        self._fetch_locks: dict[str, asyncio.Lock] = {}
         self._session: aiohttp.ClientSession | None = None
 
     def set_session(self, session: aiohttp.ClientSession) -> None:
@@ -55,10 +57,24 @@ class RobotsParser:
         if domain in self._results:
             return self._results[domain]
 
+        # Without a per-domain lock, concurrent coroutines that all reach this
+        # point before any of them finishes will each make a separate HTTP
+        # request for the same robots.txt file. The lock serialises first-access
+        # so exactly one request is made and the rest wait for the cached result.
+        if domain not in self._fetch_locks:
+            self._fetch_locks[domain] = asyncio.Lock()
+
+        async with self._fetch_locks[domain]:
+            if domain in self._results:
+                return self._results[domain]
+
+            return await self._do_fetch_robots(domain, base_url)
+
+    async def _do_fetch_robots(self, domain: str, base_url: str) -> dict[str, Any]:
         robots_url = self._build_robots_url(base_url)
 
         try:
-            async with self._session.get(robots_url) as response:
+            async with self._session.get(robots_url) as response:  # type: ignore[union-attr]
                 if response.status == 200:
                     content = await response.text()
                     parser = RobotFileParser()

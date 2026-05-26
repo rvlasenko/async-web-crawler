@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from aiohttp import web
 
@@ -324,3 +326,32 @@ Disallow: /b-private/
     finally:
         await runner_a.cleanup()
         await runner_b.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_fetch_makes_single_http_request(unused_tcp_port) -> None:
+    fetch_count = 0
+
+    async def robots_handler(request: web.Request) -> web.Response:
+        nonlocal fetch_count
+        fetch_count += 1
+        return web.Response(text="User-agent: *\nDisallow: /private/\n")
+
+    app = web.Application()
+    app.router.add_get("/robots.txt", robots_handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "localhost", unused_tcp_port)
+    await site.start()
+    base_url = f"http://localhost:{unused_tcp_port}"
+
+    try:
+        async with RobotsParser() as robots:
+            await asyncio.gather(*[robots.fetch_robots(base_url) for _ in range(10)])
+
+        assert fetch_count == 1, (
+            f"Expected exactly 1 HTTP request for robots.txt but got {fetch_count}; "
+            "concurrent callers must wait for the first fetch rather than each making their own"
+        )
+    finally:
+        await runner.cleanup()

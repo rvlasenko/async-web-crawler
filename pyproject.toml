@@ -11,6 +11,7 @@ dependencies = [
     "beautifulsoup4",
     "lxml",
     "python-dotenv",
+    "PyYAML",
 ]
 
 [project.optional-dependencies]
@@ -23,6 +24,9 @@ dev = [
 markers = [
     "postgres: marks tests that require a running PostgreSQL instance (skip without CRAWLER_TEST_POSTGRES_DSN)",
 ]
+
+[project.scripts]
+crawler = "crawler.__main__:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

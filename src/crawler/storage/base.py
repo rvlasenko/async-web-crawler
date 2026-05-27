@@ -12,6 +12,17 @@ class DataStorage(ABC):
             await storage.save(page_data)
     """
 
+    async def initialize(self) -> None:
+        """Perform any one-time setup before the first save() call.
+
+        The default implementation does nothing. Backends that require schema
+        creation (e.g. PostgreSQL) override this method.
+
+        Called automatically by AdvancedCrawler before starting a crawl.
+        """
+
+        ...
+
     @abstractmethod
     async def save(self, data: dict[str, Any]) -> None:
         """Persist one crawled page record."""

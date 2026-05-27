@@ -131,6 +131,15 @@ async def test_init_db_creates_index(mock_conn: AsyncMock, patch_connect) -> Non
     assert any("CREATE INDEX IF NOT EXISTS" in sql for sql in executed)
 
 
+@pytest.mark.asyncio
+async def test_initialize_creates_table_and_index(mock_conn: AsyncMock, patch_connect) -> None:
+    storage = PostgreSQLStorage("postgresql://localhost/test")
+    await storage.initialize()
+    executed = [c.args[0] for c in mock_conn.execute.call_args_list]
+    assert any("CREATE TABLE IF NOT EXISTS" in sql for sql in executed)
+    assert any("CREATE INDEX IF NOT EXISTS" in sql for sql in executed)
+
+
 # --- SQL correctness ---
 
 

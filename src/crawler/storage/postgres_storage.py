@@ -72,6 +72,14 @@ class PostgreSQLStorage(DataStorage):
             self._conn = conn
         return conn
 
+    async def initialize(self) -> None:
+        """Create the crawled_pages table and index if they do not exist.
+
+        Called automatically by AdvancedCrawler before starting a crawl.
+        Idempotent — safe to call multiple times.
+        """
+        await self.init_db()
+
     async def init_db(self) -> None:
         """Create the crawled_pages table and index if they do not exist."""
         conn = await self._get_conn()

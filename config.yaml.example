@@ -1,0 +1,83 @@
+# Async Web Crawler — configuration example
+# Copy to config.yaml and fill in your values.
+#
+# Load with:
+#   AdvancedCrawler.from_config("config.yaml")
+#   python -m crawler --config config.yaml
+
+# ---------------------------------------------------------------------------
+# Seed URLs
+# At least one of start_urls or sitemap_urls is required.
+# ---------------------------------------------------------------------------
+start_urls:
+  - https://example.com/
+
+# Sitemap URLs to discover additional pages before crawling begins.
+# Supports regular sitemaps and sitemap index files (recursive).
+sitemap_urls:
+  - https://example.com/sitemap.xml
+
+# ---------------------------------------------------------------------------
+# Crawl behaviour
+# ---------------------------------------------------------------------------
+
+# Stop after this many successfully crawled pages.
+max_pages: 100
+
+# Maximum link depth from seed URLs. Remove or set to null for unlimited.
+max_depth: 3
+
+# Global limit on simultaneous HTTP requests.
+max_concurrent: 5
+
+# Target request rate in requests per second. Remove or set to null to
+# disable rate limiting (not recommended for public websites).
+requests_per_second: 2.0
+
+# Apply rate limiting per domain (true) or globally (false).
+rate_limit_per_domain: true
+
+# Fetch robots.txt and obey Disallow rules and Crawl-delay directives.
+respect_robots: true
+
+# User-Agent header sent with every request.
+user_agent: "AsyncCrawler/1.0"
+
+# Only follow links whose domain matches the page they were found on.
+same_domain_only: true
+
+# Only enqueue URLs that contain at least one of these substrings.
+# Leave empty to crawl all reachable URLs.
+include_patterns: []
+
+# Skip URLs that contain any of these substrings.
+exclude_patterns:
+  - /logout
+  - /admin
+  - ?sort=
+
+# ---------------------------------------------------------------------------
+# Storage — where to save crawled page data
+# storage_type: none | json | csv | postgres
+# ---------------------------------------------------------------------------
+storage_type: json
+storage_path: output/pages.jsonl
+
+# For CSV output:
+# storage_type: csv
+# storage_path: output/pages.csv
+
+# For PostgreSQL:
+# storage_type: postgres
+# postgres_dsn: postgresql://user:password@localhost/crawler_db
+
+# ---------------------------------------------------------------------------
+# Output & logging
+# ---------------------------------------------------------------------------
+output_dir: output
+
+# Optional rotating log file. Remove or set to null to log to console only.
+log_file: output/crawl.log
+
+# Log level: DEBUG | INFO | WARNING | ERROR
+log_level: INFO

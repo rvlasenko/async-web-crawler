@@ -33,9 +33,9 @@ SEP = "-" * 60
 
 
 def print_header() -> None:
-    print("=" * 60)
+    print("=" * 64)
     print("  DAY 4: POLITE CRAWLER — robots.txt + rate limiting")
-    print("=" * 60, flush=True)
+    print("=" * 64, flush=True)
 
 
 def print_config() -> None:

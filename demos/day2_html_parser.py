@@ -39,6 +39,10 @@ def build_summary(result: dict[str, Any]) -> dict[str, Any]:
 
 
 async def main() -> None:
+    print("=" * 64)
+    print("  DAY 2: HTML PARSER — metadata, links, images, tables")
+    print("=" * 64)
+
     urls = [
         "https://example.com",
         "https://httpbin.org/html",

@@ -76,6 +76,10 @@ async def fetch_in_parallel() -> tuple[dict, float]:
 
 
 async def main():
+    print("=" * 64)
+    print("  DAY 1: BASIC ASYNC CLIENT — sequential vs parallel fetch")
+    print("=" * 64)
+
     sequential_results, sequential_time = await fetch_sequentially()
     parallel_results, parallel_time = await fetch_in_parallel()
 

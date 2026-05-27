@@ -47,6 +47,10 @@ def print_summary(crawler: AsyncCrawler) -> None:
 
 
 async def main() -> None:
+    print("=" * 64)
+    print("  DAY 3: CRAWLER QUEUE — BFS crawl with depth and domain filters")
+    print("=" * 64)
+
     async with AsyncCrawler(
         max_concurrent=4,
         timeout_seconds=5,

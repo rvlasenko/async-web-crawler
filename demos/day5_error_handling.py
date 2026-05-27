@@ -101,7 +101,7 @@ def _short_error(result: dict) -> str:
     # "Fetch failed: HTTP 503: http://..." -> "HTTP 503"
     # "Fetch failed: Timeout: http://..."  -> "Timeout"
     if msg.startswith("Fetch failed: "):
-        msg = msg[len("Fetch failed: "):]
+        msg = msg[len("Fetch failed: ") :]
     if ": http" in msg:
         msg = msg[: msg.index(": http")]
     return msg
@@ -169,7 +169,9 @@ async def run_without_retry(urls: list[str]) -> tuple[dict[str, dict], float]:
         "slow": _call_counts.get("slow", 0),
     }
     print_url_list(results, urls, counts)
-    print(f"\n  Elapsed: {elapsed:.2f} s   Succeeded: {_count_successes(results)}/{len(urls)}")
+    print(
+        f"\n  Elapsed: {elapsed:.2f} s   Succeeded: {_count_successes(results)}/{len(urls)}"
+    )
     return results, elapsed
 
 
@@ -192,10 +194,16 @@ async def run_with_retry(urls: list[str]) -> tuple[dict[str, dict], float, Retry
     _call_counts["not_found"] = 0
     _call_counts["slow"] = 0
 
-    print_run_header("Run B — RetryStrategy(max_retries=3, base_delay=0.1, backoff_factor=2.0)")
-    print("  per-type TransientError: max_retries=2, base_delay=0.2, backoff_factor=2.0")
+    print_run_header(
+        "Run B — RetryStrategy(max_retries=3, base_delay=0.1, backoff_factor=2.0)"
+    )
+    print(
+        "  per-type TransientError: max_retries=2, base_delay=0.2, backoff_factor=2.0"
+    )
 
-    async with AsyncCrawler(timeout_seconds=0.5, retry_strategy=retry_strategy) as crawler:
+    async with AsyncCrawler(
+        timeout_seconds=0.5, retry_strategy=retry_strategy
+    ) as crawler:
         t0 = time.perf_counter()
         results = await crawler.fetch_and_parse_urls(urls)
         elapsed = time.perf_counter() - t0
@@ -207,7 +215,9 @@ async def run_with_retry(urls: list[str]) -> tuple[dict[str, dict], float, Retry
         "slow": _call_counts.get("slow", 0),
     }
     print_url_list(results, urls, counts)
-    print(f"\n  Elapsed: {elapsed:.2f} s   Succeeded: {_count_successes(results)}/{len(urls)}")
+    print(
+        f"\n  Elapsed: {elapsed:.2f} s   Succeeded: {_count_successes(results)}/{len(urls)}"
+    )
     print_retry_stats(retry_strategy.stats)
     return results, elapsed, retry_strategy.stats
 
@@ -248,7 +258,7 @@ async def main() -> None:
         print("  Summary")
         print("=" * 64)
         print(f"  {'URL':<14}  {'Run A':<8}  {'Run B':<8}  Expected")
-        print(f"  {'-'*14}  {'-'*8}  {'-'*8}  {'-'*20}")
+        print(f"  {'-' * 14}  {'-' * 8}  {'-' * 8}  {'-' * 20}")
 
         expected = {
             "/flaky": "retry -> succeed",

@@ -60,6 +60,7 @@ class HTMLParser:
         url: str,
         fetch_error: str | None = None,
         parse_error: str | None = None,
+        status_code: int | None = None,
     ) -> dict[str, Any]:
         return {
             "url": url,
@@ -78,6 +79,7 @@ class HTMLParser:
             },
             "tables": [],
             "lists": [],
+            "status_code": status_code,
             "fetch_error": fetch_error,
             "parse_errors": [parse_error] if parse_error else [],
         }

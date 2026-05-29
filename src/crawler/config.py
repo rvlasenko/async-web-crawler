@@ -53,6 +53,10 @@ class CrawlerConfig:
     storage_path: str | None = None
     postgres_dsn: str | None = None
 
+    retry_max_retries: int = 3
+    retry_backoff_factor: float = 2.0
+    retry_base_delay: float = 1.0
+
     output_dir: str = "output"
     log_file: str | None = None
     log_level: str = "INFO"
@@ -114,6 +118,9 @@ class CrawlerConfig:
             "storage_type",
             "storage_path",
             "postgres_dsn",
+            "retry_max_retries",
+            "retry_backoff_factor",
+            "retry_base_delay",
             "output_dir",
             "log_file",
             "log_level",
@@ -150,6 +157,9 @@ class CrawlerConfig:
             storage_type=data.get("storage_type", "none"),
             storage_path=data.get("storage_path"),
             postgres_dsn=data.get("postgres_dsn"),
+            retry_max_retries=int(data.get("retry_max_retries", 3)),
+            retry_backoff_factor=float(data.get("retry_backoff_factor", 2.0)),
+            retry_base_delay=float(data.get("retry_base_delay", 1.0)),
             output_dir=str(data.get("output_dir", "output")),
             log_file=data.get("log_file"),
             log_level=str(data.get("log_level", "INFO")),

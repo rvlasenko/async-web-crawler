@@ -90,6 +90,13 @@ Examples:
         dest="requests_per_second",
         help="Maximum requests per second.",
     )
+    crawl.add_argument(
+        "--retry-max-retries",
+        type=int,
+        metavar="N",
+        dest="retry_max_retries",
+        help="Maximum retry attempts per URL (default: 3). Set 0 to disable retries.",
+    )
 
     log = p.add_argument_group("logging")
     log.add_argument("--log-file", metavar="FILE", help="Write logs to this file.")
@@ -136,6 +143,8 @@ def main() -> int:
         config.max_depth = args.max_depth
     if args.requests_per_second is not None:
         config.requests_per_second = args.requests_per_second
+    if args.retry_max_retries is not None:
+        config.retry_max_retries = args.retry_max_retries
     if args.respect_robots:
         config.respect_robots = True
     if args.log_file:

@@ -207,3 +207,31 @@ def test_fragment_links_are_stripped() -> None:
     assert "https://external.com/doc" in links
     assert not any("#" in link for link in links), "No fragment should survive stripping"
     assert links.count("https://example.com/page") == 1, "Fragment variants must collapse to one URL"
+
+
+# ---------------------------------------------------------------------------
+# Fix 2: empty_result preserves status_code
+# ---------------------------------------------------------------------------
+
+
+def test_empty_result_default_status_code_is_none() -> None:
+    parser = HTMLParser()
+    result = parser.empty_result(url="https://example.com", fetch_error="boom")
+    assert "status_code" in result
+    assert result["status_code"] is None
+
+
+def test_empty_result_stores_provided_status_code() -> None:
+    parser = HTMLParser()
+    result = parser.empty_result(
+        url="https://example.com", fetch_error="HTTP 404", status_code=404
+    )
+    assert result["status_code"] == 404
+
+
+def test_empty_result_status_code_503() -> None:
+    parser = HTMLParser()
+    result = parser.empty_result(
+        url="https://example.com/down", fetch_error="HTTP 503", status_code=503
+    )
+    assert result["status_code"] == 503

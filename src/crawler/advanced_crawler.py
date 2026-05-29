@@ -6,6 +6,7 @@ from typing import Any
 
 from crawler.async_crawler import AsyncCrawler
 from crawler.config import CrawlerConfig
+from crawler.retry_strategy import RetryStrategy
 from crawler.exporters import HtmlReportExporter, JsonStatsExporter
 from crawler.logging_config import setup_logging
 from crawler.monitoring import ProgressMonitor
@@ -85,6 +86,16 @@ class AdvancedCrawler:
         if self._storage is not None:
             await self._storage.initialize()
 
+        retry_strategy = (
+            RetryStrategy(
+                max_retries=cfg.retry_max_retries,
+                backoff_factor=cfg.retry_backoff_factor,
+                base_delay=cfg.retry_base_delay,
+            )
+            if cfg.retry_max_retries > 0
+            else None
+        )
+
         inner = AsyncCrawler(
             max_concurrent=cfg.max_concurrent,
             max_depth=cfg.max_depth,
@@ -93,6 +104,7 @@ class AdvancedCrawler:
             respect_robots_txt=cfg.respect_robots,
             user_agent=cfg.user_agent,
             storage=self._storage,
+            retry_strategy=retry_strategy,
         )
         self._inner = inner
 
@@ -143,7 +155,11 @@ class AdvancedCrawler:
                 success=True,
             )
         for url in inner.failed_urls:
-            stats.record_page(url=url, status_code=None, success=False)
+            stats.record_page(
+                url=url,
+                status_code=inner.failed_url_statuses.get(url),
+                success=False,
+            )
 
         stats.finalize(avg_latency=runtime.get("avg_latency_seconds", 0.0))
         self._stats = stats

@@ -128,6 +128,7 @@ class AsyncCrawler:
         self.parser = HTMLParser()
         self.attempted_urls: set[str] = set()
         self.failed_urls: dict[str, str] = {}
+        self.failed_url_statuses: dict[str, int | None] = {}
         self.processed_urls: dict[str, dict[str, Any]] = {}
         self._crawl_started_at: float | None = None
         self._crawl_finished_at: float | None = None
@@ -191,6 +192,7 @@ class AsyncCrawler:
         """
         self.attempted_urls = set()
         self.failed_urls = {}
+        self.failed_url_statuses = {}
         self.processed_urls = {}
         self._crawl_started_at = time.perf_counter()
         self._crawl_finished_at = None
@@ -240,6 +242,7 @@ class AsyncCrawler:
                 error = fetch_error or parse_error
                 if error:
                     self.failed_urls[url] = error
+                    self.failed_url_statuses[url] = parsed_data.get("status_code")
                     queue.mark_failed(url, error)
                     continue
 
@@ -293,6 +296,7 @@ class AsyncCrawler:
             return self.parser.empty_result(
                 url=url,
                 fetch_error=fetch_result["error"] or "Unknown fetch error",
+                status_code=fetch_result.get("status"),
             )
 
         content = fetch_result["content"]
@@ -308,10 +312,13 @@ class AsyncCrawler:
         # belong to the original domain and bypassing same_domain_only filtering.
         final_url = fetch_result.get("final_url") or url
 
-        parsed_data = self.parser.parse_html(
-            html=content,
-            url=final_url,
-            same_domain_only=same_domain_only,
+        loop = asyncio.get_running_loop()
+        parsed_data = await loop.run_in_executor(
+            None,
+            self.parser.parse_html,
+            content,
+            final_url,
+            same_domain_only,
         )
 
         # Preserve the original requested URL as the result key so that
@@ -409,9 +416,6 @@ class AsyncCrawler:
                     )
                 self.rate_limiter.update_domain_delay(url, crawl_delay)
 
-        if self.rate_limiter is not None:
-            await self.rate_limiter.acquire(url)
-
         async with self.semaphore_manager.acquire(url):
             try:
                 if self.retry_strategy is not None:
@@ -419,6 +423,8 @@ class AsyncCrawler:
 
                     async def _fetch() -> tuple[str, int, str, str]:
                         nonlocal _attempt
+                        if self.rate_limiter is not None:
+                            await self.rate_limiter.acquire(url)
                         read_timeout = self.timeout_seconds * (
                             self.timeout_multiplier ** _attempt
                         )
@@ -429,6 +435,8 @@ class AsyncCrawler:
                         _fetch, context=url
                     )
                 else:
+                    if self.rate_limiter is not None:
+                        await self.rate_limiter.acquire(url)
                     content, status, final_url, content_type = await self._do_http_fetch(url)
 
                 return {
